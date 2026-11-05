@@ -15,6 +15,7 @@ use crate::{
         run_sse,
     },
     cursor::{
+        inference::{self, InferenceSession, LocalModel},
         protocol::{
             connect,
             proto::{agent::v1 as agent, aiserver::v1 as ai},
@@ -47,6 +48,10 @@ fn router_with_proxy(
     Router::new()
         .route("/__byok-api__/healthz", get(health))
         .route("/agent.v1.AgentService/RunSSE", post(run_sse_handler))
+        .route(
+            "/aiserver.v1.InferenceService/RunInferenceSSE",
+            post(run_inference_sse_handler),
+        )
         .route("/aiserver.v1.BidiService/BidiAppend", post(bidi_handler))
         .route(
             "/aiserver.v1.AiService/AvailableDocs",
@@ -207,6 +212,9 @@ async fn run_sse_handler(
         crate::cursor::transport::TransportRoute::Local => {
             run_sse::stream(&registry, &request.request_id).await
         }
+        crate::cursor::transport::TransportRoute::Inference => Err(crate::Error::Protocol(
+            "RunSSE opened for a RunInference stream".into(),
+        )),
         crate::cursor::transport::TransportRoute::Upstream(generation) => {
             let response = proxy::forward(
                 Extension(proxy),
@@ -225,6 +233,121 @@ async fn run_sse_handler(
     }
 }
 
+async fn run_inference_sse_handler(
+    State(registry): State<TransportRegistry>,
+    Extension(proxy): Extension<CursorProxy>,
+    request: Request<Body>,
+) -> Result<Response<Body>> {
+    let (parts, body) = buffered(request).await?;
+    let request: agent::BidiRequestId = connect::decode_unary(&body)?;
+    match registry.wait_route(&request.request_id).await {
+        crate::cursor::transport::TransportRoute::Inference => {
+            run_sse::inference(registry, request.request_id).await
+        }
+        crate::cursor::transport::TransportRoute::Upstream(generation) => {
+            let response = proxy::forward(
+                Extension(proxy),
+                Request::from_parts(parts, Body::from(body)),
+            )
+            .await?;
+            Ok(run_sse::upstream(registry, request.request_id, generation, response, None).await)
+        }
+        crate::cursor::transport::TransportRoute::Local => Err(crate::Error::Protocol(
+            "RunInferenceSSE opened for an Agent Run stream".into(),
+        )),
+    }
+}
+
+/// Routes BidiAppend frames of RunInference streams. Returns `None` for Agent Run frames.
+async fn inference_append(
+    registry: &TransportRegistry,
+    proxy: &CursorProxy,
+    parts: &axum::http::request::Parts,
+    body: &Bytes,
+    request: &ai::BidiAppendRequest,
+) -> Result<Option<Response<Body>>> {
+    let Some(request_id) = request
+        .request_id
+        .as_ref()
+        .map(|id| id.request_id.as_str())
+        .filter(|id| !id.is_empty())
+    else {
+        return Ok(None);
+    };
+    let payload = if request.data_binary.is_empty() {
+        hex::decode(&request.data)
+            .map_err(|error| crate::Error::Protocol(format!("invalid BidiAppend hex: {error}")))?
+    } else {
+        request.data_binary.clone()
+    };
+    if let Some(session) = registry.inference(request_id).await {
+        session.append(prost::Message::decode(payload.as_slice())?)?;
+        return Ok(Some(empty_proto_response()));
+    }
+    if let Some(run) = inference::decode_start(&payload) {
+        let model_id = run
+            .requested_model
+            .as_ref()
+            .map(|model| model.model_id.as_str())
+            .unwrap_or_default();
+        if let Some(local) = local_model(registry, model_id).await? {
+            tracing::info!(
+                request_id,
+                model_id,
+                "routing Cursor RunInference to BYOK provider"
+            );
+            let provider = registry.conversations().dependencies().provider.clone();
+            let session = InferenceSession::start(request_id, &run, local, provider)?;
+            registry.insert_inference(request_id, session).await;
+            return Ok(Some(empty_proto_response()));
+        }
+        tracing::info!(
+            request_id,
+            model_id,
+            "routing Cursor RunInference to Cursor upstream"
+        );
+        registry.mark_upstream(request_id).await;
+    } else if !registry.upstream(request_id).await || registry.local(request_id).await.is_some() {
+        return Ok(None);
+    }
+    let forwarded = Request::from_parts(parts.clone(), Body::from(body.clone()));
+    proxy::forward(Extension(proxy.clone()), forwarded)
+        .await
+        .map(Some)
+}
+
+/// The BYOK model behind `model_id`, or `None` when Cursor's own backend should serve it.
+async fn local_model(registry: &TransportRegistry, model_id: &str) -> Result<Option<LocalModel>> {
+    if model_id.starts_with(crate::plugin::ADAPTER_ID_PREFIX) {
+        let display_name = match registry.plugins() {
+            Some(plugins) => plugins.model_descriptor(model_id).await?.display_name,
+            None => model_id.to_owned(),
+        };
+        return Ok(Some(LocalModel {
+            display_name,
+            context_window_tokens: None,
+        }));
+    }
+    Ok(registry
+        .store()
+        .model(model_id)
+        .await?
+        .map(|model| LocalModel {
+            display_name: model.display_name,
+            context_window_tokens: model.context_window_tokens,
+        }))
+}
+
+fn empty_proto_response() -> Response<Body> {
+    let mut response = Response::new(Body::empty());
+    *response.status_mut() = StatusCode::OK;
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/proto"),
+    );
+    response
+}
+
 async fn bidi_handler(
     State(registry): State<TransportRegistry>,
     Extension(proxy): Extension<CursorProxy>,
@@ -232,6 +355,9 @@ async fn bidi_handler(
 ) -> Result<Response<Body>> {
     let (parts, body) = buffered(request).await?;
     let request: ai::BidiAppendRequest = connect::decode_unary(&body)?;
+    if let Some(response) = inference_append(&registry, &proxy, &parts, &body, &request).await? {
+        return Ok(response);
+    }
     let decoded = bidi::decode(&request)?;
     let first_model = decoded.model_id().map(str::to_owned);
     let conversation_id = decoded.conversation_id().map(str::to_owned);

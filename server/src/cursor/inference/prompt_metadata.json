@@ -1,0 +1,450 @@
+{
+  "agentModeConfigs": [
+    {
+      "modeId": "agent"
+    },
+    {
+      "modeId": "chat"
+    },
+    {
+      "modeId": "plan"
+    },
+    {
+      "modeId": "debug"
+    },
+    {
+      "modeId": "triage"
+    },
+    {
+      "modeId": "multitask"
+    }
+  ],
+  "askQuestionConfig": {
+    "toolName": "AskQuestion"
+  },
+  "dsv3IsThinking": false,
+  "enableLineNumbers": true,
+  "enableSemanticSearch": true,
+  "estimatedCacheTtlMs": 300000,
+  "featureFlags": {
+    "agentFastFingerprintHash": {
+      "boolValue": false
+    },
+    "agentFastFingerprintHashDualVerify": {
+      "boolValue": false
+    },
+    "agentPreviewCard": {
+      "boolValue": false
+    },
+    "agentPreviewCardXmllint": {
+      "boolValue": false
+    },
+    "agentStateRestoreBlobFetchConcurrency": {
+      "numberValue": 32
+    },
+    "agentStorePathsAdvertisedInPrompt": {
+      "boolValue": false
+    },
+    "agentStorePrincipalAutoMount": {
+      "boolValue": false
+    },
+    "aliasSkillCatalogPathPrefixes": {
+      "boolValue": false
+    },
+    "allowInteractiveMcpAuth": {
+      "boolValue": false
+    },
+    "allowResumeSelfFork": {
+      "boolValue": false
+    },
+    "appsPublishPill": {
+      "boolValue": false
+    },
+    "askQuestionSystemPromptGuidance": {
+      "boolValue": true
+    },
+    "babysitV2Prompt": {
+      "boolValue": false
+    },
+    "backgroundComposerMultiPrs": {
+      "boolValue": true
+    },
+    "boostSemanticSearch": {
+      "boolValue": false
+    },
+    "closeStdin": {
+      "boolValue": false
+    },
+    "cloudAgentAsyncInstallStatusPromptFix": {
+      "boolValue": false
+    },
+    "cloudAgentContinualLearning": {
+      "boolValue": false
+    },
+    "cloudAgentEgressAllowlistButtons": {
+      "boolValue": false
+    },
+    "cloudAgentGhCliReadWrite": {
+      "boolValue": false
+    },
+    "cloudAgentMemoryBalloonPrompt": {
+      "boolValue": false
+    },
+    "cloudAgentProactiveSelfSummarization": {
+      "boolValue": false
+    },
+    "cloudAgentProactiveTokenLimitError": {
+      "boolValue": true
+    },
+    "cloudAgentPushAfterTesting": {
+      "boolValue": false
+    },
+    "cloudAgentSelfHostedMachine": {
+      "boolValue": false
+    },
+    "cloudAgentSelfHostedMyMachine": {
+      "boolValue": false
+    },
+    "cloudAgentStartScriptStatusPrompt": {
+      "boolValue": true
+    },
+    "cloudAgentTmuxShellGuidance": {
+      "boolValue": false
+    },
+    "cloudSubagentTargeting": {
+      "boolValue": false
+    },
+    "collectModelUxStats": {
+      "boolValue": true
+    },
+    "compactShellDescription": {
+      "boolValue": true
+    },
+    "defaultSubagentsRunInBackground": {
+      "boolValue": false
+    },
+    "deferSubagentStateRefLoads": {
+      "boolValue": false
+    },
+    "disableBackgroundTaskFollowUp": {
+      "boolValue": false
+    },
+    "disableTerminalOutputUiStreaming": {
+      "boolValue": false
+    },
+    "dropCustomPromptContext": {
+      "boolValue": false
+    },
+    "dynamicToolProfile": {
+      "stringValue": "all-static"
+    },
+    "dynamicToolsDirectToolRecovery": {
+      "boolValue": false
+    },
+    "emptyResponseRetryKeepsStoppedStep": {
+      "boolValue": false
+    },
+    "enableAffirmativePlanLanguage": {
+      "boolValue": false
+    },
+    "enableAgentChatLinks": {
+      "boolValue": false
+    },
+    "enableAgentStoreConflictNotices": {
+      "boolValue": true
+    },
+    "enableAntiAskQuestionSysReminder": {
+      "boolValue": false
+    },
+    "enableAntiAskQuestionToolDescription": {
+      "boolValue": false
+    },
+    "enableAntiAskQuestionUserRule": {
+      "boolValue": false
+    },
+    "enableAwaitForSubagents": {
+      "boolValue": false
+    },
+    "enableBackgroundTaskProgress": {
+      "boolValue": false
+    },
+    "enableBoundedSubagentAwait": {
+      "boolValue": false
+    },
+    "enableBrowserSubagent": {
+      "boolValue": false
+    },
+    "enableBrowserSubagentGating": {
+      "boolValue": false
+    },
+    "enableBugbotSubagent": {
+      "boolValue": false
+    },
+    "enableCiInvestigatorSubagent": {
+      "boolValue": false
+    },
+    "enableCliReflectGeneralTool": {
+      "boolValue": false
+    },
+    "enableCloudAgentVideoAttachments": {
+      "boolValue": false
+    },
+    "enableCloudAsyncSubagents": {
+      "boolValue": false
+    },
+    "enableCoAuthoredByTrailer": {
+      "boolValue": false
+    },
+    "enableComposer2CustomPlanModeFollowup": {
+      "boolValue": false
+    },
+    "enableComposer2CustomUserRules": {
+      "boolValue": false
+    },
+    "enableConnectScm": {
+      "boolValue": false
+    },
+    "enableDebugSubagent": {
+      "boolValue": false
+    },
+    "enableDsv30226CommunicationV2": {
+      "boolValue": false
+    },
+    "enableEmptyResponseRetry": {
+      "boolValue": false
+    },
+    "enableExploreSubagent": {
+      "boolValue": false
+    },
+    "enableFsdSubagent": {
+      "boolValue": false
+    },
+    "enableGenerateVideo": {
+      "boolValue": false
+    },
+    "enableGoalTools": {
+      "boolValue": false
+    },
+    "enableGrepBroadGlobGuard": {
+      "boolValue": true
+    },
+    "enableGrindSwarmSubagent": {
+      "boolValue": false
+    },
+    "enableHookAdditionalContext": {
+      "boolValue": true
+    },
+    "enableMCPFileSystem": {
+      "boolValue": false
+    },
+    "enableMatterhornPromptTweaks": {
+      "boolValue": false
+    },
+    "enableMultitaskMode": {
+      "boolValue": false
+    },
+    "enableNestedSubagents": {
+      "boolValue": false
+    },
+    "enablePastConversationExplorerSubagent": {
+      "boolValue": false
+    },
+    "enableProactiveBugbotReviewSubagent": {
+      "boolValue": false
+    },
+    "enablePromptMessageReadCache": {
+      "boolValue": false
+    },
+    "enableReadFileExplicitOffsetLimitDescription": {
+      "boolValue": false
+    },
+    "enableReadToolNegativeOffset": {
+      "boolValue": false
+    },
+    "enableReadonlyShell": {
+      "boolValue": false
+    },
+    "enableReviewAgentNaturalLanguageDescription": {
+      "boolValue": false
+    },
+    "enableSandboxSharedBuildCache": {
+      "boolValue": true
+    },
+    "enableSecurityReviewSubagent": {
+      "boolValue": false
+    },
+    "enableSetActiveBranch": {
+      "boolValue": false
+    },
+    "enableShellBlockUntilMsComposer": {
+      "boolValue": false
+    },
+    "enableShellSubagent": {
+      "boolValue": false
+    },
+    "enableSlackVideoAttachments": {
+      "boolValue": false
+    },
+    "enableSubagentTaskDepthLimit": {
+      "boolValue": false
+    },
+    "enableTahomaPlanCommitment": {
+      "boolValue": false
+    },
+    "enableTahomaUserRuleIntervention": {
+      "boolValue": false
+    },
+    "enableTrackedGitRepoState": {
+      "boolValue": false
+    },
+    "enableVegaFrontendUserRuleIntervention": {
+      "boolValue": false
+    },
+    "enableVoiceSendToCallTool": {
+      "boolValue": false
+    },
+    "enableWatchVideoInIdeSubagent": {
+      "boolValue": false
+    },
+    "enhancedBranchChangeReminder": {
+      "boolValue": false
+    },
+    "environmentParamForSubagent": {
+      "boolValue": false
+    },
+    "fixClaudeSubagentAwait": {
+      "boolValue": false
+    },
+    "gemini38ToolEfficiencyPrompt": {
+      "boolValue": false
+    },
+    "geminiVideoAttachmentInlineMaxBytes": {
+      "numberValue": 15728640
+    },
+    "geminiVideoAttachmentSignedUrlMaxBytes": {
+      "numberValue": 15728640
+    },
+    "generalizedEnvSetup": {
+      "boolValue": false
+    },
+    "glassMetaParentAgent": {
+      "boolValue": false
+    },
+    "hasRestrictedEgress": {
+      "boolValue": false
+    },
+    "hideAsyncSubagentTaskNotifications": {
+      "boolValue": true
+    },
+    "inlineSubagentStateSummaries": {
+      "boolValue": false
+    },
+    "localAgentMarkdownImages": {
+      "boolValue": true
+    },
+    "longRunningJobs": {
+      "boolValue": false
+    },
+    "mcpSteerReleaseReadOnlyTools": {
+      "boolValue": false
+    },
+    "nalLoopDetection": {
+      "boolValue": false
+    },
+    "newConversationalSummary": {
+      "boolValue": false
+    },
+    "omitEditBeforeAfterFileStates": {
+      "boolValue": false
+    },
+    "omitTestingInstructions": {
+      "boolValue": false
+    },
+    "outputNotificationLimit": {
+      "numberValue": 1000
+    },
+    "overlapPreTurnStateSnapshot": {
+      "boolValue": false
+    },
+    "prCreationForgeGuidance": {
+      "boolValue": false
+    },
+    "projectCoordinatorWorkerFileLinks": {
+      "boolValue": false
+    },
+    "projectRootCoordinatorLocalParityPrompt": {
+      "boolValue": false
+    },
+    "projectRootCoordinatorPrompt": {
+      "boolValue": false
+    },
+    "projectSendMessageReplyTo": {
+      "boolValue": false
+    },
+    "promptContextUsageTree": {
+      "boolValue": false
+    },
+    "protectLoopSkillDescription": {
+      "boolValue": false
+    },
+    "requestedEnvironmentBuildParamForSubagent": {
+      "boolValue": false
+    },
+    "rerenderUserInfoOnRequestContextRecovery": {
+      "boolValue": false
+    },
+    "rerenderUserInfoOnSummarization": {
+      "boolValue": false
+    },
+    "semanticSearchReminderMinPatterns": {
+      "numberValue": 5
+    },
+    "sendMessagePrivateAssistantText": {
+      "boolValue": false
+    },
+    "serializeSubagentStatesAsBlobRefs": {
+      "boolValue": false
+    },
+    "sharedTerminalEnvSetup": {
+      "boolValue": false
+    },
+    "shiftDsv3McpFilesInstructionsToUserMsg": {
+      "boolValue": true
+    },
+    "slackThreadRepliesAsFollowups": {
+      "boolValue": false
+    },
+    "stripCredentialedUrls": {
+      "boolValue": false
+    },
+    "subagentExperimentGroup": {
+      "stringValue": "control"
+    },
+    "subagentSupportInterrupt": {
+      "boolValue": false
+    },
+    "updateCurrentStepOnAllSubagents": {
+      "boolValue": false
+    },
+    "useClientSideSubagent": {
+      "boolValue": false
+    },
+    "useGrok46CommunicationV2": {
+      "boolValue": false
+    },
+    "useMinimalHarness": {
+      "boolValue": false
+    },
+    "userMessageTimestamps": {
+      "boolValue": false
+    }
+  },
+  "persona": "anonymous",
+  "promptVersion": "latest",
+  "smartModeClassifierMode": true,
+  "smartModeClassifierShadowMode": false,
+  "supportsAssistantMessagePrefill": true,
+  "useNewPlanModePrompts": false,
+  "useSparseReadLineNumbers": true,
+  "vendor": "unknown"
+}

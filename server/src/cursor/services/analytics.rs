@@ -14,10 +14,12 @@ use crate::{api::cursor::proxy, Error, Result};
 
 pub const BOOTSTRAP_STATSIG_PATH: &str = "/aiserver.v1.AnalyticsService/BootstrapStatsig";
 const LOCAL_RULE: &str = "local_override";
-/// Statsig gates forced by BYOK. `agent_host_local_loop` 打开后 agent host 改走
-/// InferenceService/RunInference(客户端 agent 循环),本地 Run 实现无法解码,因此保持关闭。
+/// Statsig gates forced by BYOK. `agent_host_local_loop` 让 Cursor 在客户端运行 agent 循环,
+/// 通过 InferenceService/RunInference 调用模型;BYOK 在本地应答这些调用。
 const GATE_OVERRIDES: &[(&str, bool)] =
-    &[("nal_agent_retries", true), ("agent_host_local_loop", false)];
+    &[("nal_agent_retries", true), ("agent_host_local_loop", true)];
+/// RunInference 的 WebSocket 传输无法被本地代理接管,强制使用 BidiAppend + RunInferenceSSE。
+const RUN_INFERENCE_WEBSOCKET_CONFIG: &str = "run_inference_websocket_client";
 
 #[derive(Clone, PartialEq, Message)]
 struct BootstrapStatsigResponse {
@@ -115,7 +117,41 @@ fn override_gates(config: &mut Value) -> Result<()> {
     for (gate_key, value) in gate_keys {
         gates.insert(gate_key.clone(), local_gate(&gate_key, value));
     }
+    let config_key = statsig_key(config, RUN_INFERENCE_WEBSOCKET_CONFIG);
+    let configs = config
+        .as_object_mut()
+        .expect("checked above")
+        .entry("dynamic_configs")
+        .or_insert_with(|| Value::Object(Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| Error::Protocol("Statsig dynamic_configs must be an object".into()))?;
+    configs.insert(
+        config_key.clone(),
+        local_config(
+            &config_key,
+            json!({
+                "enabled": false,
+                "treatment_percent": null,
+                "maxConnections": 1,
+                "fallbackOnColdPool": false
+            }),
+        ),
+    );
     Ok(())
+}
+
+fn local_config(name: &str, value: Value) -> Value {
+    json!({
+        "name": name,
+        "value": value,
+        "rule_id": LOCAL_RULE,
+        "group": LOCAL_RULE,
+        "is_device_based": false,
+        "id_type": "userID",
+        "secondary_exposures": [],
+        "is_user_in_experiment": false,
+        "is_experiment_active": false
+    })
 }
 
 fn statsig_key(config: &Value, name: &str) -> String {
@@ -193,6 +229,8 @@ mod tests {
         override_gates(&mut config).unwrap();
         let gates = &config["feature_gates"];
         assert_eq!(gates[djb2("nal_agent_retries")]["value"], true);
-        assert_eq!(gates[djb2("agent_host_local_loop")]["value"], false);
+        assert_eq!(gates[djb2("agent_host_local_loop")]["value"], true);
+        let websocket = &config["dynamic_configs"][djb2(RUN_INFERENCE_WEBSOCKET_CONFIG)];
+        assert_eq!(websocket["value"]["enabled"], false);
     }
 }

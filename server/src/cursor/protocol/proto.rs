@@ -6,6 +6,12 @@ pub mod agent {
     }
 }
 
+/// `aiserver.v1` RunInference messages generated from `inference_v1.proto`.
+pub mod inference {
+    #![allow(clippy::large_enum_variant, clippy::enum_variant_names)]
+    include!(concat!(env!("OUT_DIR"), "/aiserver.v1.rs"));
+}
+
 pub mod aiserver {
     pub mod v1 {
         #[derive(Clone, PartialEq, ::prost::Message)]

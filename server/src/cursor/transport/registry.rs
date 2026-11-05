@@ -12,7 +12,7 @@ use tokio::sync::{mpsc, Mutex, Notify};
 
 use crate::{
     cursor::{
-        conversation::ConversationRegistry, prompting::PromptCompiler,
+        conversation::ConversationRegistry, inference::InferenceSession, prompting::PromptCompiler,
         services::observability::CursorTraceService,
     },
     plugin::PluginRegistry,
@@ -31,6 +31,7 @@ pub struct TransportRegistry {
 
 struct RegistryInner {
     local: Mutex<HashMap<String, LocalTransport>>,
+    inference: Mutex<HashMap<String, Arc<InferenceSession>>>,
     next_local_generation: AtomicU64,
     upstream: Mutex<HashMap<String, u64>>,
     route_changed: Notify,
@@ -50,6 +51,8 @@ struct LocalTransport {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransportRoute {
     Local,
+    /// A RunInference stream served by a local [`InferenceSession`].
+    Inference,
     Upstream(u64),
 }
 
@@ -113,6 +116,7 @@ impl TransportRegistry {
         Self {
             inner: Arc::new(RegistryInner {
                 local: Mutex::new(HashMap::new()),
+                inference: Mutex::new(HashMap::new()),
                 next_local_generation: AtomicU64::new(1),
                 upstream: Mutex::new(HashMap::new()),
                 route_changed: Notify::new(),
@@ -219,6 +223,35 @@ impl TransportRegistry {
             .map(|transport| transport.handle.clone())
     }
 
+    pub async fn insert_inference(&self, request_id: &str, session: Arc<InferenceSession>) {
+        if let Some(previous) = self
+            .inner
+            .inference
+            .lock()
+            .await
+            .insert(request_id.into(), session)
+        {
+            previous.close();
+        }
+        self.inner.route_changed.notify_waiters();
+    }
+
+    pub async fn inference(&self, request_id: &str) -> Option<Arc<InferenceSession>> {
+        self.inner.inference.lock().await.get(request_id).cloned()
+    }
+
+    /// Drops a finished RunInference stream; `session` guards against removing a replacement.
+    pub async fn remove_inference(&self, request_id: &str, session: &Arc<InferenceSession>) {
+        let mut sessions = self.inner.inference.lock().await;
+        if sessions
+            .get(request_id)
+            .is_some_and(|current| Arc::ptr_eq(current, session))
+        {
+            sessions.remove(request_id);
+        }
+        session.close();
+    }
+
     pub async fn mark_upstream(&self, request_id: &str) {
         let mut upstream = self.inner.upstream.lock().await;
         let generation = upstream.get(request_id).copied().unwrap_or_default() + 1;
@@ -239,6 +272,9 @@ impl TransportRegistry {
             if self.inner.local.lock().await.contains_key(request_id) {
                 return TransportRoute::Local;
             }
+            if self.inner.inference.lock().await.contains_key(request_id) {
+                return TransportRoute::Inference;
+            }
             if let Some(generation) = self.inner.upstream.lock().await.get(request_id).copied() {
                 return TransportRoute::Upstream(generation);
             }
@@ -258,6 +294,9 @@ impl TransportRegistry {
 
     pub async fn shutdown(&self) {
         self.inner.conversations.shutdown().await;
+        for session in std::mem::take(&mut *self.inner.inference.lock().await).into_values() {
+            session.close();
+        }
         let handles = std::mem::take(&mut *self.inner.local.lock().await);
         self.inner.upstream.lock().await.clear();
         for transport in handles.into_values() {

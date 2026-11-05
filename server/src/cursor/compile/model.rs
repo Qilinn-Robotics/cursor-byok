@@ -37,6 +37,11 @@ pub fn requested_model(request: &pb::AgentRunRequest) -> Result<ModelSpec> {
     Ok(model)
 }
 
+/// Resolves a bare Cursor model selection (no ModelDetails), e.g. RunInference's requested model.
+pub(crate) fn requested_spec(model: &pb::RequestedModel) -> Result<ModelSpec> {
+    from_requested(model, None)
+}
+
 pub fn overrides(
     request: &pb::AgentRunRequest,
 ) -> Result<Vec<(SubagentKind, SubagentModelOverride)>> {

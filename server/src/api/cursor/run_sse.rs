@@ -10,6 +10,7 @@ use tokio_stream::StreamExt;
 
 use crate::{
     cursor::{
+        inference::InferenceSession,
         protocol::connect::{self, END_STREAM_FLAG},
         services::observability::CursorTraceRecorder,
         transport::{TransportHandle, TransportRegistry},
@@ -38,6 +39,62 @@ pub async fn stream(registry: &TransportRegistry, request_id: &str) -> Result<Re
         .headers_mut()
         .insert("connect-protocol-version", HeaderValue::from_static("1"));
     Ok(response)
+}
+
+/// Streams a local RunInference session; the session ends with the client connection.
+pub async fn inference(registry: TransportRegistry, request_id: String) -> Result<Response<Body>> {
+    let session = registry.inference(&request_id).await.ok_or_else(|| {
+        crate::Error::Protocol(format!("RunInference stream {request_id} is not open"))
+    })?;
+    let mut receiver = session.take_output().ok_or_else(|| {
+        crate::Error::Protocol(format!(
+            "RunInference stream {request_id} already has a reader"
+        ))
+    })?;
+    let body_stream = async_stream::stream! {
+        let _guard = InferenceGuard {
+            registry,
+            request_id,
+            session,
+        };
+        while let Some(chunk) = receiver.recv().await {
+            let terminal = is_end_stream_frame(&chunk);
+            yield Ok::<Bytes, Infallible>(chunk);
+            if terminal {
+                return;
+            }
+        }
+    };
+    let mut response = Response::new(Body::from_stream(body_stream));
+    *response.status_mut() = StatusCode::OK;
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/event-stream"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    response
+        .headers_mut()
+        .insert("connect-protocol-version", HeaderValue::from_static("1"));
+    Ok(response)
+}
+
+struct InferenceGuard {
+    registry: TransportRegistry,
+    request_id: String,
+    session: std::sync::Arc<InferenceSession>,
+}
+
+impl Drop for InferenceGuard {
+    fn drop(&mut self) {
+        let registry = self.registry.clone();
+        let request_id = std::mem::take(&mut self.request_id);
+        let session = self.session.clone();
+        tokio::spawn(async move {
+            registry.remove_inference(&request_id, &session).await;
+        });
+    }
 }
 
 fn local_body_stream(
