@@ -29,6 +29,7 @@ use crate::{
 use super::{metadata, translate};
 use pb::{
     run_inference_client_message::Message as Client,
+    run_inference_subagent_model_override,
     run_inference_server_message::Message as Server,
 };
 
@@ -71,8 +72,13 @@ impl InferenceSession {
         let mut model = model_spec(&requested)?;
         // Same window the Agent Run compaction uses: Cursor's context choice, else the BYOK config.
         model.context_window_tokens = model.context_window_tokens.or(local.context_window_tokens);
-        let ready =
-            metadata::run_ready(&requested, &local.display_name, model.context_window_tokens)?;
+        let overrides = resolve_overrides(&run.subagent_model_overrides);
+        let ready = metadata::run_ready(
+            &requested,
+            &local.display_name,
+            model.context_window_tokens,
+            overrides,
+        )?;
         let (output, receiver) = mpsc::unbounded_channel();
         let session = Arc::new(Self {
             request_id: request_id.to_owned(),
@@ -292,6 +298,34 @@ fn model_spec(requested: &pb::InferenceRequestedModel) -> Result<ModelSpec> {
     })
 }
 
+fn resolve_overrides(
+    overrides: &[pb::RunInferenceSubagentModelOverride],
+) -> Vec<pb::RunInferenceResolvedSubagentModelOverride> {
+    overrides
+        .iter()
+        .filter_map(|value| {
+            use run_inference_subagent_model_override::Selection;
+            let kind = match value.selection.as_ref()? {
+                Selection::Model(model) if model.model_id != "default" => {
+                    return Some(pb::RunInferenceResolvedSubagentModelOverride {
+                        subagent_type: value.subagent_type.clone(),
+                        kind: "model".into(),
+                        model_id: Some(model.model_id.clone()),
+                    })
+                }
+                Selection::Model(_) | Selection::Inherit(true) => "inherit",
+                Selection::Disabled(true) => "disabled",
+                Selection::Inherit(false) | Selection::Disabled(false) => return None,
+            };
+            Some(pb::RunInferenceResolvedSubagentModelOverride {
+                subagent_type: value.subagent_type.clone(),
+                kind: kind.into(),
+                model_id: None,
+            })
+        })
+        .collect()
+}
+
 /// Recognizes the first append of a RunInference stream. Agent Run appends start with an
 /// `AgentRunRequest` whose field 1 is an encoded message, never a bare conversation UUID.
 pub fn decode_start(payload: &[u8]) -> Option<pb::RunInferenceRunRequest> {
@@ -365,6 +399,46 @@ mod tests {
                     .unwrap()
             })
             .collect()
+    }
+
+    #[test]
+    fn resolve_overrides_filters_and_translates() {
+        let overrides = resolve_overrides(&[
+            pb::RunInferenceSubagentModelOverride {
+                subagent_type: "explore".into(),
+                selection: Some(run_inference_subagent_model_override::Selection::Model(
+                    pb::InferenceRequestedModel {
+                        model_id: "fast".into(),
+                        ..Default::default()
+                    },
+                )),
+            },
+            pb::RunInferenceSubagentModelOverride {
+                subagent_type: "plan".into(),
+                selection: Some(run_inference_subagent_model_override::Selection::Inherit(
+                    true,
+                )),
+            },
+            pb::RunInferenceSubagentModelOverride {
+                subagent_type: "debug".into(),
+                selection: Some(run_inference_subagent_model_override::Selection::Disabled(
+                    true,
+                )),
+            },
+            pb::RunInferenceSubagentModelOverride {
+                subagent_type: "ignored".into(),
+                selection: None,
+            },
+        ]);
+        assert_eq!(overrides.len(), 3);
+        assert_eq!(overrides[0].subagent_type, "explore");
+        assert_eq!(overrides[0].kind, "model");
+        assert_eq!(overrides[0].model_id.as_deref(), Some("fast"));
+        assert_eq!(overrides[1].subagent_type, "plan");
+        assert_eq!(overrides[1].kind, "inherit");
+        assert!(overrides[1].model_id.is_none());
+        assert_eq!(overrides[2].subagent_type, "debug");
+        assert_eq!(overrides[2].kind, "disabled");
     }
 
     #[test]

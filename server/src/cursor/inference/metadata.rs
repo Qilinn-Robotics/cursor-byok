@@ -7,15 +7,36 @@ use crate::{cursor::protocol::proto::inference as pb, Result};
 /// agent host's bundled prompt-model table), used verbatim for every BYOK model.
 const UNCLASSIFIED: &str = include_str!("prompt_metadata.json");
 
+/// Flags the managed local loop needs that the `unclassified` table leaves off, copied from the
+/// agent host's own pinned local-loop defaults. The local loop cannot build in-process child
+/// agents, so the Task tool fails ("managed local loop does not build in-process child
+/// AgentConfig") unless subagents run through the client-side executor, which starts each child
+/// as its own RunInference stream.
+const FLAG_OVERRIDES: &[(&str, bool)] = &[
+    ("useClientSideSubagent", true),
+    ("enableExploreSubagent", true),
+    ("enableDebugSubagent", true),
+    ("enableAwaitForSubagents", true),
+    ("enableBoundedSubagentAwait", true),
+    ("enableBackgroundTaskProgress", true),
+    ("subagentSupportInterrupt", true),
+    ("longRunningJobs", true),
+];
+
 /// `context_window_tokens` becomes the client's `agent_token_limit`: the budget Cursor's agent
 /// compacts against (it summarizes with the same model through this stream). Without it Cursor
 /// falls back to its own default window.
+///
+/// `overrides` fills in `subagent_model_config.overrides` so the client honors the per-subagent
+/// model choices from the RunRequest (via Cursor's Task tool UI); without them every subagent is
+/// pinned to the parent model.
 pub fn run_ready(
     requested: &pb::InferenceRequestedModel,
     display_name: &str,
     context_window_tokens: Option<u64>,
+    overrides: Vec<pb::RunInferenceResolvedSubagentModelOverride>,
 ) -> Result<pb::RunInferenceRunReady> {
-    let mut metadata = prompt_model_metadata(display_name)?;
+    let mut metadata = prompt_model_metadata(display_name, &requested.model_id, overrides)?;
     metadata.agent_token_limit =
         context_window_tokens.map(|tokens| tokens.min(i32::MAX as u64) as i32);
     Ok(pb::RunInferenceRunReady {
@@ -27,7 +48,11 @@ pub fn run_ready(
     })
 }
 
-fn prompt_model_metadata(display_name: &str) -> Result<pb::RunInferencePromptModelMetadata> {
+fn prompt_model_metadata(
+    display_name: &str,
+    parent_model_id: &str,
+    overrides: Vec<pb::RunInferenceResolvedSubagentModelOverride>,
+) -> Result<pb::RunInferencePromptModelMetadata> {
     let config: Value = serde_json::from_str(UNCLASSIFIED)?;
     let text = |key: &str| config[key].as_str().unwrap_or_default().to_owned();
     let flag = |key: &str| config[key].as_bool().unwrap_or_default();
@@ -46,6 +71,7 @@ fn prompt_model_metadata(display_name: &str) -> Result<pb::RunInferencePromptMod
         // The classifier routes through Cursor-hosted models, which BYOK turns cannot reach.
         smart_mode_classifier_mode: Some(false),
         smart_mode_classifier_shadow_mode: Some(false),
+        subagent_model_config: subagent_config(parent_model_id, overrides),
         agent_mode_configs: config["agentModeConfigs"]
             .as_array()
             .into_iter()
@@ -67,7 +93,47 @@ fn prompt_model_metadata(display_name: &str) -> Result<pb::RunInferencePromptMod
             .into_iter()
             .flatten()
             .filter_map(|(name, value)| Some((name.clone(), flag_value(value)?)))
+            .chain(FLAG_OVERRIDES.iter().map(|(name, value)| {
+                (
+                    (*name).to_owned(),
+                    pb::RunInferenceFlagValue {
+                        value: Some(pb::run_inference_flag_value::Value::BoolValue(*value)),
+                    },
+                )
+            }))
             .collect(),
+        ..Default::default()
+    })
+}
+
+fn subagent_config(
+    parent_model_id: &str,
+    overrides: Vec<pb::RunInferenceResolvedSubagentModelOverride>,
+) -> Option<pb::RunInferenceSubagentModelConfig> {
+    if overrides.is_empty() {
+        return None;
+    }
+    // The client treats any slug missing from `models` as invalid and falls back to the parent,
+    // so every model the user picked (and the parent itself) is advertised as valid here.
+    let mut slugs = vec![parent_model_id.to_owned()];
+    for model_id in overrides.iter().filter_map(|value| value.model_id.as_ref()) {
+        if !slugs.contains(model_id) {
+            slugs.push(model_id.clone());
+        }
+    }
+    Some(pb::RunInferenceSubagentModelConfig {
+        force_policy: "none".into(),
+        parent_requested_model_name: parent_model_id.into(),
+        models: slugs
+            .into_iter()
+            .map(|slug| pb::RunInferenceSubagentModelPolicy {
+                slug,
+                advertised: true,
+                valid: true,
+                ..Default::default()
+            })
+            .collect(),
+        overrides,
         ..Default::default()
     })
 }
@@ -97,6 +163,7 @@ mod tests {
             },
             "My Model",
             Some(272_000),
+            Vec::new(),
         )
         .unwrap();
         let metadata = ready.prompt_model_metadata.unwrap();
@@ -108,6 +175,54 @@ mod tests {
             .iter()
             .any(|mode| mode.mode_id == "agent"));
         assert!(metadata.feature_flags.len() > 100);
+        assert_eq!(
+            metadata.feature_flags["useClientSideSubagent"].value,
+            Some(pb::run_inference_flag_value::Value::BoolValue(true))
+        );
         assert_eq!(ready.resolved_model.unwrap().model_id, "byok-model");
+    }
+
+    #[test]
+    fn subagent_config_empty_when_no_overrides() {
+        let ready = run_ready(
+            &pb::InferenceRequestedModel {
+                model_id: "parent".into(),
+                ..Default::default()
+            },
+            "Parent",
+            None,
+            Vec::new(),
+        )
+        .unwrap();
+        let metadata = ready.prompt_model_metadata.unwrap();
+        assert!(metadata.subagent_model_config.is_none());
+    }
+
+    #[test]
+    fn subagent_config_carries_overrides() {
+        let ready = run_ready(
+            &pb::InferenceRequestedModel {
+                model_id: "parent".into(),
+                ..Default::default()
+            },
+            "Parent",
+            None,
+            vec![pb::RunInferenceResolvedSubagentModelOverride {
+                subagent_type: "explore".into(),
+                kind: "model".into(),
+                model_id: Some("fast-model".into()),
+            }],
+        )
+        .unwrap();
+        let metadata = ready.prompt_model_metadata.unwrap();
+        let config = metadata.subagent_model_config.unwrap();
+        assert_eq!(config.force_policy, "none");
+        assert_eq!(config.parent_requested_model_name, "parent");
+        assert_eq!(config.overrides.len(), 1);
+        assert_eq!(config.overrides[0].subagent_type, "explore");
+        assert_eq!(config.overrides[0].model_id.as_deref(), Some("fast-model"));
+        let slugs: Vec<_> = config.models.iter().map(|model| model.slug.as_str()).collect();
+        assert_eq!(slugs, ["parent", "fast-model"]);
+        assert!(config.models.iter().all(|model| model.valid && model.advertised));
     }
 }
